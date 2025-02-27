@@ -117,6 +117,9 @@ exports.getChaptersByStory = async (req, res) => {
         .json({ success: false, message: "Story không tồn tại!" });
     }
 
+    // 🟢 Chuyển `story` thành JSON thuần
+    const storyData = story.toJSON();
+
     // 🟢 Lấy danh sách chapters của story
     const chapters = await Chapter.findAll({
       where: { story_id: storyId },
@@ -126,13 +129,11 @@ exports.getChaptersByStory = async (req, res) => {
 
     res.json({
       success: true,
-      story: {
-        id: story.id,
-        title: story.title,
-        author: story.author,
-        category: story.category.name,
-        tags: story.tags.map((tag) => tag.name),
-      },
+      // story: {
+      //   ...storyData, // 🟢 Trả về toàn bộ thông tin story
+      //   tags: storyData.tags.map((tag) => tag.name), // 🟢 Chỉ lấy tên tags
+      // },
+      story,
       chapters,
     });
   } catch (error) {
@@ -173,32 +174,75 @@ exports.getChapterDetailHTML = async (req, res) => {
 
     // 🟢 Render HTML
     let htmlContent = `
-      <html>
+      <!DOCTYPE html>
+      <html lang="vi">
       <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
         <title>${chapter.story.title} - ${chapter.title}</title>
         <style>
-          body { font-family: Arial, sans-serif; text-align: center; }
-          h1 { color: #333; }
-          img { width: 80%; max-width: 800px; }
+          body {
+            font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            color: #333;
+            margin: 0;
+            padding: 10px;
+            text-align: center;
+          }
+          h1 {
+            font-size: 20px;
+            color: #222;
+            margin-bottom: 10px;
+          }
+          p {
+            font-size: 14px;
+            margin: 5px 0;
+          }
+          .container {
+            max-width: 480px;
+            margin: auto;
+            background: #fff;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+          }
+          img {
+            width: 100%;
+            height: auto;
+            border-radius: 5px;
+            margin-bottom: 10px;
+          }
+          .divider {
+            border-top: 2px solid #ddd;
+            margin: 10px 0;
+          }
         </style>
       </head>
       <body>
-        <h1>${chapter.story.title} - ${chapter.title}</h1>
-        <p><strong>Thể loại:</strong> ${chapter.story.category.name}</p>
-        <p><strong>Tags:</strong> ${chapter.story.tags
-          .map((tag) => tag.name)
-          .join(", ")}</p>
-        <p><strong>Ngày phát hành:</strong> ${chapter.release_date}</p>
-        <hr>
+        <div class="container">
+          <h1>${chapter.story.title} - ${chapter.title}</h1>
+          <p><strong>Thể loại:</strong> ${chapter.story.category.name}</p>
+          <p><strong>Tags:</strong> ${chapter.story.tags
+            .map((tag) => tag.name)
+            .join(", ")}</p>
+          <p><strong>Ngày phát hành:</strong> ${chapter.release_date}</p>
+          <div class="divider"></div>
     `;
 
     // 🟢 Thêm ảnh của chapter vào HTML
     chapter.chapterImages.forEach((img) => {
-      htmlContent += `<img src="${img.image_url}" alt="Page ${img.order}"><br>`;
+      htmlContent += `<img src="${img.image_url}" alt="Page ${img.order}">`;
     });
 
-    // 🟢 Trả về HTML
-    res.send(htmlContent);
+    htmlContent += `
+        </div>
+      </body>
+      </html>
+    `;
+
+    return res
+      .status(200)
+      .json({ success: true, message: "Thành công", content: htmlContent });
   } catch (error) {
     console.error("❌ Lỗi lấy chi tiết chapter:", error);
     res.status(500).json({ success: false, message: "Lỗi hệ thống" });
