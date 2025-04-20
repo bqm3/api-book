@@ -1,13 +1,21 @@
 const Category = require("./category.model");
 const Story = require("./story.model");
 const Chapter = require("./chapter.model");
+const User = require("./user.model");
 const ChapterImage = require("./chapterImage.model");
 const Tag = require("./tag.model");
+const Comment = require("./comment.model");
 const StoryTag = require("./storyTag.model");
 
 // 🔹 Quan hệ 1-N: Category -> Stories
 Category.hasMany(Story, { foreignKey: "genre_id", as: "stories" });
 Story.belongsTo(Category, { foreignKey: "genre_id", as: "category" });
+
+// Tag.hasMany(Story, { foreignKey: "status", as: "stories" });
+// Story.belongsTo(Tag, { foreignKey: "status", as: "tag" });
+
+Comment.belongsTo(User, { foreignKey: "userId", as: "user" });
+Comment.belongsTo(Chapter, { foreignKey: "chapterId", as: "chapter" });
 
 // 🔹 Quan hệ 1-N: Story -> Chapters
 Story.hasMany(Chapter, { foreignKey: "story_id", as: "chapters" });
@@ -32,4 +40,12 @@ Tag.belongsToMany(Story, {
   as: "stories",
 });
 
-module.exports = { Category, Story, Chapter, ChapterImage, Tag, StoryTag };
+module.exports = {
+  Category,
+  Story,
+  Chapter,
+  ChapterImage,
+  Tag,
+  StoryTag,
+  Comment,
+};

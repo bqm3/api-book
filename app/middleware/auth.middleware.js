@@ -1,15 +1,30 @@
 const jwt = require("jsonwebtoken");
+const User = require("../models/user.model");
 
-module.exports = (req, res, next) => {
-  const token = req.header("Authorization")?.split(" ")[1];
+exports.middlewareAuth = async (req, res, next) => {
+  const authHeader = req.header("Authorization");
 
-  if (!token) return res.status(401).json({ message: "Bạn chưa đăng nhập" });
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res
+      .status(401)
+      .json({ success: false, message: "Unauthorized - Missing Token" });
+  }
 
   try {
-    const verified = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = verified;
+    const token = authHeader.split(" ")[1]; // Lấy token từ header
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Kiểm tra user có tồn tại không
+    const user = await User.findByPk(decoded.id);
+    if (!user) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Unauthorized - User not found" });
+    }
+
+    req.user = user; // Gán user vào request
     next();
   } catch (error) {
-    res.status(403).json({ message: "Token không hợp lệ" });
+    return res.status(401).json({ success: false, message: "Invalid Token" });
   }
 };

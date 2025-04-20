@@ -5,7 +5,10 @@ const {
   ChapterImage,
   Tag,
   StoryTag,
+  Comment,
 } = require("../models/setup.model");
+const User = require("../models/user.model");
+const UserChapterView = require("../models/userchapter.model");
 
 exports.getAllStories = async (req, res) => {
   try {
@@ -101,8 +104,8 @@ exports.getStoriesByTag = async (req, res) => {
 exports.getChaptersByStory = async (req, res) => {
   try {
     const { storyId } = req.params;
+    // const userId = req.user.id;
 
-    // 🟢 Tìm story theo ID
     const story = await Story.findOne({
       where: { id: storyId },
       include: [
@@ -117,24 +120,64 @@ exports.getChaptersByStory = async (req, res) => {
         .json({ success: false, message: "Story không tồn tại!" });
     }
 
-    // 🟢 Chuyển `story` thành JSON thuần
     const storyData = story.toJSON();
 
-    // 🟢 Lấy danh sách chapters của story
     const chapters = await Chapter.findAll({
       where: { story_id: storyId },
-      attributes: ["id", "chapter_number", "title", "release_date"], // 🟢 Chỉ lấy các trường cần thiết
-      order: [["chapter_number", "ASC"]], // 🟢 Sắp xếp theo thứ tự chapter
+      attributes: ["id", "chapter_number", "title", "release_date"],
+      order: [["chapter_number", "ASC"]],
+    });
+
+    const viewedChapters = await UserChapterView.findAll({
+      // where: { user_id: userId },
+      attributes: ["chapter_id"],
+    });
+
+    const viewedSet = new Set(viewedChapters.map((vc) => vc.chapter_id));
+
+    const chaptersWithStatus = chapters.map((chapter) => ({
+      ...chapter.toJSON(),
+      is_viewed: viewedSet.has(chapter.id),
+    }));
+
+    res.json({
+      success: true,
+      story,
+      chapters: chaptersWithStatus,
+    });
+  } catch (error) {
+    console.error("❌ Lỗi lấy danh sách chapters:", error);
+    res.status(500).json({ success: false, message: "Lỗi hệ thống" });
+  }
+};
+
+exports.getChaptersByStoryDif = async (req, res) => {
+  try {
+    const { storyId } = req.params;
+    const story = await Story.findOne({
+      where: { id: storyId },
+      include: [
+        { model: Category, as: "category" },
+        { model: Tag, as: "tags" },
+      ],
+    });
+
+    if (!story) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Story không tồn tại!" });
+    }
+
+    const chapters = await Chapter.findAll({
+      where: { story_id: storyId },
+      attributes: ["id", "chapter_number", "title", "release_date"],
+      order: [["chapter_number", "ASC"]],
     });
 
     res.json({
       success: true,
-      // story: {
-      //   ...storyData, // 🟢 Trả về toàn bộ thông tin story
-      //   tags: storyData.tags.map((tag) => tag.name), // 🟢 Chỉ lấy tên tags
-      // },
       story,
-      chapters,
+      chapters: chapters,
     });
   } catch (error) {
     console.error("❌ Lỗi lấy danh sách chapters:", error);
@@ -245,6 +288,104 @@ exports.getChapterDetailHTML = async (req, res) => {
       .json({ success: true, message: "Thành công", content: htmlContent });
   } catch (error) {
     console.error("❌ Lỗi lấy chi tiết chapter:", error);
+    res.status(500).json({ success: false, message: "Lỗi hệ thống" });
+  }
+};
+
+exports.postCommentChapter = async (req, res) => {
+  try {
+    // Kiểm tra xem req.user có tồn tại không
+    if (!req.user || !req.user.id) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Unauthorized - Missing user data" });
+    }
+
+    const { chapterId } = req.params;
+    const { content } = req.body;
+    const userId = req.user.id;
+
+    if (!content || !chapterId) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Thiếu nội dung hoặc chapterId" });
+    }
+
+    // Kiểm tra chương có tồn tại không
+    const chapter = await Chapter.findByPk(chapterId);
+    if (!chapter) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Chương không tồn tại" });
+    }
+
+    // Tạo bình luận mới
+    const comment = await Comment.create({ userId, chapterId, content });
+
+    return res.status(201).json({
+      success: true,
+      message: "Bình luận đã được đăng",
+      comment: comment,
+    });
+  } catch (error) {
+    console.error("Lỗi khi đăng bình luận:", error);
+    return res.status(500).json({ success: false, message: "Lỗi server" });
+  }
+};
+
+exports.getCommentChapter = async (req, res) => {
+  try {
+    const { chapterId } = req.params;
+
+    // Lấy danh sách bình luận của chương, sắp xếp theo thời gian tạo (mới nhất trước)
+    const comments = await Comment.findAll({
+      where: { chapterId },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", "UserName"], // Chỉ lấy ID & tên user
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Lấy danh sách bình luận thành công",
+      comments,
+    });
+  } catch (error) {
+    console.error("Lỗi khi lấy danh sách bình luận:", error);
+    return res.status(500).json({ success: false, message: "Lỗi server" });
+  }
+};
+
+exports.markChapterAsRead = async (req, res) => {
+  try {
+    const { chapterId } = req.params;
+    const userId = req.user.id;
+
+    const chapter = await Chapter.findOne({ where: { id: chapterId } });
+    if (!chapter) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Chapter không tồn tại!" });
+    }
+
+    const [record, created] = await UserChapterView.findOrCreate({
+      where: { user_id: userId, chapter_id: chapterId },
+      defaults: { viewed_at: new Date() },
+    });
+
+    res.json({
+      success: true,
+      message: created
+        ? "Đã đánh dấu đã đọc"
+        : "User đã đọc chapter này trước đó",
+    });
+  } catch (error) {
+    console.error("❌ Lỗi đánh dấu đã đọc:", error);
     res.status(500).json({ success: false, message: "Lỗi hệ thống" });
   }
 };

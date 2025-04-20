@@ -27,6 +27,11 @@ const User = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+    role: {
+      type: DataTypes.ENUM("admin", "user"),
+      defaultValue: "user",
+      allowNull: false,
+    },
   },
   {
     freezeTableName: true,

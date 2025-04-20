@@ -4,13 +4,19 @@ const bcrypt = require("bcryptjs");
 
 exports.register = async (req, res) => {
   try {
-    const { UserName, Password, FullName, Age } = req.body;
+    const { UserName, Password, FullName, Age, role } = req.body;
 
     const existingUser = await User.findOne({ where: { UserName } });
     if (existingUser)
       return res.status(400).json({ message: "Tên đăng nhập đã tồn tại" });
 
-    const newUser = await User.create({ UserName, Password, FullName, Age });
+    const newUser = await User.create({
+      UserName,
+      Password,
+      FullName,
+      Age,
+      role,
+    });
 
     res.status(201).json({ message: "Đăng ký thành công", user: newUser });
   } catch (error) {
