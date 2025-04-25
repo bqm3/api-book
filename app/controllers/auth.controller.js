@@ -1,54 +1,87 @@
 const User = require("../models/user.model");
 const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
+const { hashSync, genSaltSync, compareSync } = require("bcrypt");
 
 exports.register = async (req, res) => {
   try {
-    const { UserName, Password, FullName, Age, role } = req.body;
+    let { UserName, Password, Fullname, Age, role } = req.body;
+    console.log("Register request body:", req.body); // Debug
+
+    // Validate input
+    if (!UserName || !Password) {
+      return res
+        .status(400)
+        .json({ message: "Tên đăng nhập và mật khẩu là bắt buộc" });
+    }
+
+    Password = Password.trim();
+    console.log("Trimmed password:", Password); // Debug
+    role = role || "user";
 
     const existingUser = await User.findOne({ where: { UserName } });
-    if (existingUser)
+    if (existingUser) {
       return res.status(400).json({ message: "Tên đăng nhập đã tồn tại" });
+    }
+
+    const salt = genSaltSync(10);
+    const hashedPassword = hashSync(Password, salt);
+    console.log("Hashed Password:", hashedPassword); // Debug
 
     const newUser = await User.create({
       UserName,
-      Password,
-      FullName,
+      Password: hashedPassword,
+      FullName: Fullname,
       Age,
       role,
     });
 
-    res.status(201).json({ message: "Đăng ký thành công", user: newUser });
+    console.log("Stored Password:", newUser.Password); // Debug
+    return res
+      .status(201)
+      .json({ message: "Đăng ký thành công", user: newUser });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Lỗi hệ thống" });
+    console.error("Register error:", error);
+    return res.status(500).json({ message: "Lỗi hệ thống" });
   }
 };
 
 exports.login = async (req, res) => {
   try {
+    console.log("Login request body:", req.body); // Debug
     const { UserName, Password } = req.body;
 
-    const user = await User.findOne({ where: { UserName } });
-    if (!user)
-      return res.status(400).json({ message: "Tài khoản không tồn tại" });
+    // Validate input
+    if (!UserName || !Password) {
+      return res
+        .status(400)
+        .json({ message: "Tên đăng nhập và mật khẩu là bắt buộc" });
+    }
 
-    const isMatch = await bcrypt.compare(Password, user.Password);
-    if (!isMatch)
+    const trimmedPassword = Password.trim();
+    console.log("Trimmed password:", trimmedPassword); // Debug
+
+    const user = await User.findOne({ where: { UserName } });
+    if (!user) {
+      return res.status(400).json({ message: "Tài khoản không tồn tại" });
+    }
+
+    console.log("Stored hash:", user.Password); // Debug
+    const isMatch = compareSync(trimmedPassword, user.Password);
+    console.log("Password match:", isMatch); // Debug
+    if (!isMatch) {
       return res.status(400).json({ message: "Mật khẩu không chính xác" });
+    }
 
     const token = jwt.sign(
       { id: user.id, UserName: user.UserName },
       process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
+      { expiresIn: "7d" }
     );
 
-    res.json({ message: "Đăng nhập thành công", token, user });
+    return res.json({ message: "Đăng nhập thành công", token, user });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Lỗi hệ thống" });
+    console.error("Login error:", error);
+    return res.status(500).json({ message: "Lỗi hệ thống" });
   }
 };
 

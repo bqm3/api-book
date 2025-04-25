@@ -12,11 +12,10 @@ const User = sequelize.define(
     },
     UserName: {
       type: DataTypes.STRING,
-      allowNull: false,
       unique: true,
     },
     Password: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(255),
       allowNull: false,
     },
     FullName: {
@@ -36,11 +35,6 @@ const User = sequelize.define(
   {
     freezeTableName: true,
     timestamps: false,
-    hooks: {
-      beforeCreate: async (user) => {
-        user.Password = await bcrypt.hash(user.Password, 10);
-      },
-    },
   }
 );
 
