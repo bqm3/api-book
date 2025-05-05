@@ -1,6 +1,8 @@
 const User = require("../models/user.model");
 const jwt = require("jsonwebtoken");
 const { hashSync, genSaltSync, compareSync } = require("bcrypt");
+const UserChapterLike = require("../models/userchapterlike.model");
+const Story = require("../models/story.model");
 
 exports.register = async (req, res) => {
   try {
@@ -47,7 +49,6 @@ exports.register = async (req, res) => {
 
 exports.login = async (req, res) => {
   try {
-    console.log("Login request body:", req.body); // Debug
     const { UserName, Password } = req.body;
 
     // Validate input
@@ -58,16 +59,13 @@ exports.login = async (req, res) => {
     }
 
     const trimmedPassword = Password.trim();
-    console.log("Trimmed password:", trimmedPassword); // Debug
 
     const user = await User.findOne({ where: { UserName } });
     if (!user) {
       return res.status(400).json({ message: "Tài khoản không tồn tại" });
     }
 
-    console.log("Stored hash:", user.Password); // Debug
     const isMatch = compareSync(trimmedPassword, user.Password);
-    console.log("Password match:", isMatch); // Debug
     if (!isMatch) {
       return res.status(400).json({ message: "Mật khẩu không chính xác" });
     }

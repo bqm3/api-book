@@ -4,38 +4,44 @@ const multer = require("multer");
 const path = require("path");
 const { Category, Story, StoryTag, Tag } = require("../models/setup.model");
 
-// Cấu hình Multer để lưu trữ file ảnh
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "public/icon");
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
-  },
-});
-
-const upload = multer({ storage });
-
 // Tạo mới một Category
-router.post("/categories", upload.single("icon"), async (req, res) => {
+router.post("/categories", async (req, res) => {
   try {
-    const { id, name, description } = req.body;
-    const icon_url = req.file ? `/public/icon/${req.file.filename}` : null;
+    const { name, description } = req.body;
 
-    if (!id || !name) {
-      return res
-        .status(400)
-        .json({ message: "ID và tên category là bắt buộc" });
+    if (!name) {
+      return res.status(400).json({ message: "Tên thể loại là bắt buộc" });
     }
 
+    // Lấy tất cả các id đã có trong bảng Category
+    const categories = await Category.findAll({ attributes: ["id"] });
+
+    // Tìm số lớn nhất hiện tại
+    let maxNumber = 0;
+    categories.forEach((cat) => {
+      const match = cat.id.match(/^CAT0*(\d+)$/);
+      if (match) {
+        const number = parseInt(match[1], 10);
+        if (number > maxNumber) {
+          maxNumber = number;
+        }
+      }
+    });
+
+    // Sinh id mới
+    const newId = "CAT" + (maxNumber + 1).toString().padStart(3, "0"); // Ví dụ CAT001, CAT002,...
+
+    // Tạo Category mới
     const newCategory = await Category.create({
-      id,
+      id: newId,
       name,
       description,
-      icon_url,
+      icon_url: null,
     });
+
     res.status(201).json(newCategory);
   } catch (error) {
+    console.error(error);
     res
       .status(500)
       .json({ message: "Lỗi khi tạo category", error: error.message });

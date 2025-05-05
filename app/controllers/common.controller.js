@@ -9,6 +9,7 @@ const {
 } = require("../models/setup.model");
 const User = require("../models/user.model");
 const UserChapterView = require("../models/userchapter.model");
+const UserChapterLike = require("../models/userchapterlike.model");
 
 exports.getAllStories = async (req, res) => {
   try {
@@ -104,7 +105,7 @@ exports.getStoriesByTag = async (req, res) => {
 exports.getChaptersByStory = async (req, res) => {
   try {
     const { storyId } = req.params;
-    // const userId = req.user.id;
+    // const userId = req.user.id; // Mở nếu dùng user cụ thể
 
     const story = await Story.findOne({
       where: { id: storyId },
@@ -128,21 +129,42 @@ exports.getChaptersByStory = async (req, res) => {
       order: [["chapter_number", "ASC"]],
     });
 
+    // Lấy tất cả lượt xem (nếu cần user cụ thể thì thêm where: { user_id: userId })
     const viewedChapters = await UserChapterView.findAll({
       // where: { user_id: userId },
-      attributes: ["chapter_id"],
+      attributes: ["chapter_id", "user_id", "viewed_at"],
     });
 
-    const viewedSet = new Set(viewedChapters.map((vc) => vc.chapter_id));
+    // Dùng Map để lấy cả viewed_at
+    const viewedMap = new Map();
+    viewedChapters.forEach((vc) => {
+      viewedMap.set(vc.chapter_id, vc.viewed_at);
+    });
 
-    const chaptersWithStatus = chapters.map((chapter) => ({
-      ...chapter.toJSON(),
-      is_viewed: viewedSet.has(chapter.id),
-    }));
+    // Lấy tất cả các chương đã được yêu thích
+    const likedStory = await UserChapterLike.findOne({
+      where: { story_id: storyId },
+      // where: { user_id: userId }, // Mở nếu muốn lấy dữ liệu của user cụ thể
+      attributes: ["story_id", "user_id", "viewed_at"],
+    });
+
+    // Gộp thông tin vào danh sách chapter
+    const chaptersWithStatus = chapters.map((chapter) => {
+      const chapterJson = chapter.toJSON();
+      return {
+        ...chapterJson,
+        is_viewed: viewedMap.has(chapter.id),
+        viewed_at: viewedMap.get(chapter.id) || null,
+      };
+    });
 
     res.json({
       success: true,
-      story,
+      story: {
+        ...storyData,
+        isLiked: likedStory ? true : false, // Thêm thông tin "is_liked"
+        liked_at: likedStory ? likedStory.view_at : null, // Thêm thời gian yêu thích
+      },
       chapters: chaptersWithStatus,
     });
   } catch (error) {
@@ -386,6 +408,82 @@ exports.markChapterAsRead = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Lỗi đánh dấu đã đọc:", error);
+    res.status(500).json({ success: false, message: "Lỗi hệ thống" });
+  }
+};
+
+exports.toggleLikeChapterUser = async (req, res) => {
+  try {
+    const user_id = req.user.id; // Lấy từ middleware sau khi verify token
+    const { story_id } = req.body;
+
+    const existingLike = await UserChapterLike.findOne({
+      where: { user_id, story_id },
+    });
+
+    if (existingLike) {
+      await existingLike.destroy();
+      return res.status(200).json({
+        message: "Chapter unfavorited successfully",
+        favorited: false,
+      });
+    }
+
+    const newLike = await UserChapterLike.create({
+      user_id,
+      story_id,
+    });
+
+    res.status(201).json({
+      message: "Chapter favorited successfully",
+      data: newLike,
+      favorited: true,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Error toggling favorite",
+      error: error.message,
+    });
+  }
+};
+
+exports.getFavoriteStories = async (req, res) => {
+  try {
+    const userId = req.user.id; // Giả sử thông tin người dùng được xác thực qua middleware
+
+    // Lấy các truyện yêu thích của người dùng, thực hiện JOIN với các bảng khác
+    const favoriteStories = await UserChapterLike.findAll({
+      where: { user_id: userId },
+      include: [
+        {
+          model: Story,
+          as: "story", // Tên alias của bảng Story trong model UserChapterLike
+          include: [
+            { model: Category, as: "category" },
+            {
+              model: Chapter,
+              as: "chapters",
+              include: [{ model: ChapterImage, as: "chapterImages" }],
+            },
+            { model: Tag, as: "tags" },
+          ],
+        },
+      ],
+    });
+
+    // Nếu không có truyện yêu thích, trả về thông báo lỗi
+    if (favoriteStories.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Không có truyện yêu thích" });
+    }
+
+    // Trả về kết quả truyện yêu thích đã được join các bảng
+    const stories = favoriteStories.map((fav) => fav.story); // Chỉ lấy thông tin truyện từ kết quả JOIN
+
+    res.json({ success: true, data: stories });
+  } catch (error) {
+    console.error("❌ Lỗi lấy truyện yêu thích:", error);
     res.status(500).json({ success: false, message: "Lỗi hệ thống" });
   }
 };

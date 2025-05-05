@@ -10,6 +10,8 @@ const {
   getCommentChapter,
   getChaptersByStoryDif,
   markChapterAsRead,
+  toggleLikeChapterUser,
+  getFavoriteStories,
 } = require("../controllers/common.controller");
 const { middlewareAuth } = require("../middleware/auth.middleware");
 
@@ -26,7 +28,9 @@ router.get("/story/:storyId/chapters", getChaptersByStory);
 router.get("/story/:storyId", getChaptersByStoryDif);
 // chi tiết truyện theo chapter
 router.get("/chapter/:chapterId", getChapterDetailHTML);
+router.get("/stories/favorite_stories", [middlewareAuth], getFavoriteStories);
 router.post("/chapter/:chapterId", [middlewareAuth], markChapterAsRead);
+router.post("/toggle-favorite", [middlewareAuth], toggleLikeChapterUser);
 router.post(
   "/chapter/:chapterId/comment",
   [middlewareAuth],

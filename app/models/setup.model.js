@@ -6,6 +6,7 @@ const ChapterImage = require("./chapterImage.model");
 const Tag = require("./tag.model");
 const Comment = require("./comment.model");
 const StoryTag = require("./storyTag.model");
+const UserChapterLike = require("./userchapterlike.model");
 
 // 🔹 Quan hệ 1-N: Category -> Stories
 Category.hasMany(Story, { foreignKey: "genre_id", as: "stories" });
@@ -27,7 +28,7 @@ Chapter.hasMany(ChapterImage, {
   as: "chapterImages",
 });
 ChapterImage.belongsTo(Chapter, { foreignKey: "chapter_id", as: "chapter" });
-
+UserChapterLike.belongsTo(Story, { foreignKey: "story_id", as: "story" });
 // 🔹 Quan hệ N-N: Stories <-> Tags (bảng trung gian StoryTag)
 Story.belongsToMany(Tag, {
   through: StoryTag,
@@ -48,4 +49,5 @@ module.exports = {
   Tag,
   StoryTag,
   Comment,
+  UserChapterLike,
 };
