@@ -3,8 +3,6 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const cloudinary = require("cloudinary").v2;
-
-const retry = require("async-retry");
 const {
   Chapter,
   ChapterImage,
@@ -13,12 +11,8 @@ const {
   Comment,
 } = require("../models/setup.model");
 const router = express.Router();
-
-// Cấu hình Multer để lưu trữ ảnh
-const uploadDir = path.join(__dirname, "../public/chapter_images");
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const IP = require("../utils/config");
+const PORT = process.env.PORT || 3232;
 
 // Cấu hình Cloudinary
 cloudinary.config({
@@ -28,28 +22,45 @@ cloudinary.config({
 });
 
 // Cấu hình Multer để lưu trữ ảnh
+const CHAPTER_IMAGES_DIR = path.join(__dirname, "../public/chapter_images");
+
+const ensureDirectoryExists = (directory) => {
+  if (!fs.existsSync(directory)) {
+    fs.mkdirSync(directory, { recursive: true });
+  }
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadDir);
+    ensureDirectoryExists(CHAPTER_IMAGES_DIR); // luôn lưu vào thư mục gốc
+    cb(null, CHAPTER_IMAGES_DIR);
   },
   filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
+    const now = new Date();
+    const timestamp = now
+      .toISOString()
+      .replace(/[-T:\.Z]/g, "") // bỏ ký tự không hợp lệ
+      .slice(0, 14); // YYYYMMDDHHMMSS
+    const uniqueName = `${timestamp}-${file.originalname}`;
+    cb(null, uniqueName);
   },
 });
 
 const upload = multer({ storage });
 
-// Tạo mới Chapter với ảnh
+// Hàm tạo đường dẫn URL cho ảnh
+const createImageUrl = (filename) => {
+  return `http://${IP}:${PORT}/public/chapter_images/${filename}`;
+};
 
+// Route tạo chapter mới
 router.post("/chapters", upload.array("images", 20), async (req, res) => {
   try {
-    const { story_id, chapter_number, title, release_date, views } = req.body;
-    console.log("req.body", req.body);
-    const chapterId = `CH${Date.now().toString().slice(-8)}`;
+    const { story_id, chapter_number, title, release_date, views, chapter_id } =
+      req.body;
 
-    // Create new chapter
     const newChapter = await Chapter.create({
-      id: chapterId,
+      id: chapter_id,
       story_id,
       chapter_number,
       title,
@@ -57,184 +68,73 @@ router.post("/chapters", upload.array("images", 20), async (req, res) => {
       views: views || 0,
     });
 
-    // Upload images to Cloudinary if present
-    if (req.files && req.files.length > 0) {
-      if (!newChapter || !newChapter.id) {
-        return res
-          .status(500)
-          .json({ message: "Không thể tạo chapter, ID không tồn tại" });
-      }
+    const imageRecords = req.files.map((file, index) => ({
+      id: `${Date.now().toString().slice(-6)}${index}`,
+      chapter_id: chapter_id,
+      image_url: createImageUrl(file.filename), // CHỈ truyền tên file
+      order: index + 1,
+      description: "",
+    }));
 
-      try {
-        const uploadBatchSize = 5; // Process 5 images at a time
-        const imageRecords = [];
-
-        for (let i = 0; i < req.files.length; i += uploadBatchSize) {
-          const batch = req.files.slice(i, i + uploadBatchSize);
-          const batchResults = await Promise.all(
-            batch.map(async (file, index) => {
-              // Retry upload up to 3 times
-              const result = await retry(
-                async () => {
-                  return await cloudinary.uploader.upload(file.path, {
-                    folder: "chapter_images",
-                    public_id: `${chapterId}_${Date.now()}_${i + index}`,
-                    timeout: 60000, // 60-second timeout
-                    transformation: [
-                      { width: 800, crop: "scale" },
-                      { quality: "auto" },
-                    ],
-                  });
-                },
-                {
-                  retries: 3,
-                  minTimeout: 1000,
-                  onRetry: (err) => {
-                    console.warn(
-                      `Retrying upload for ${file.path}: ${err.message}`
-                    );
-                  },
-                }
-              );
-
-              // Delete temporary file asynchronously
-              await fs
-                .unlink(file.path)
-                .catch((err) =>
-                  console.error(`Failed to delete ${file.path}: ${err.message}`)
-                );
-
-              return {
-                id: `${Date.now().toString().slice(-6)}${i + index}`,
-                chapter_id: newChapter.id,
-                image_url: result.secure_url,
-                order: i + index + 1,
-                description: "",
-              };
-            })
-          );
-          imageRecords.push(...batchResults);
-        }
-
-        // Save image records to database
-        await ChapterImage.bulkCreate(imageRecords);
-      } catch (imageError) {
-        console.error("Lỗi khi lưu ảnh:", imageError);
-        return res.status(500).json({
-          message: "Lỗi khi lưu ảnh chương",
-          error: imageError.message,
-        });
-      }
+    if (imageRecords.length > 0) {
+      await ChapterImage.bulkCreate(imageRecords);
     }
 
     res.status(201).json({
       message: "Chapter và ảnh đã được tạo thành công!",
       chapter: newChapter,
+      images: imageRecords,
     });
   } catch (error) {
     console.error("Lỗi khi tạo chapter:", error);
-    res
-      .status(500)
-      .json({ message: "Lỗi khi tạo chapter", error: error.message });
+    res.status(500).json({
+      message: "Lỗi khi tạo chapter",
+      error: error.message,
+    });
   }
 });
 
+// Route cập nhật chapter
 router.put("/chapters/:id", upload.array("images", 20), async (req, res) => {
   try {
     const { id } = req.params;
     const { title, chapter_number, release_date, views } = req.body;
 
-    // Find and update chapter
     const chapter = await Chapter.findByPk(id);
     if (!chapter) {
       return res.status(404).json({ message: "Chapter không tồn tại" });
     }
 
-    // Update chapter fields
     chapter.title = title ?? chapter.title;
     chapter.chapter_number = chapter_number ?? chapter.chapter_number;
     chapter.release_date = release_date ?? chapter.release_date;
     chapter.views = views ?? chapter.views;
     await chapter.save();
+    console.log("req.files", req.files);
 
-    // Handle image uploads to Cloudinary
-    if (req.files && req.files.length > 0) {
-      const uploadBatchSize = 5; // Process 5 images at a time
-      const imageRecords = [];
+    const imageRecords = req.files.map((file, index) => ({
+      id: `${Date.now().toString().slice(-6)}${index}`,
+      chapter_id: id,
+      image_url: createImageUrl(file.filename),
+      order: index + 1,
+      description: "",
+    }));
+    console.log("imageRecords", imageRecords);
 
-      for (let i = 0; i < req.files.length; i += uploadBatchSize) {
-        const batch = req.files.slice(i, i + uploadBatchSize);
-        const batchResults = await Promise.all(
-          batch.map(async (file, index) => {
-            try {
-              // Retry upload up to 3 times
-              const result = await retry(
-                async () => {
-                  return await cloudinary.uploader.upload(file.path, {
-                    folder: "chapter_images",
-                    public_id: `${id}_${Date.now()}_${i + index}`,
-                    timeout: 60000, // 60-second timeout
-                    transformation: [
-                      { width: 800, crop: "scale" },
-                      { quality: "auto" },
-                    ],
-                  });
-                },
-                {
-                  retries: 3,
-                  minTimeout: 1000,
-                  onRetry: (err) => {
-                    console.warn(
-                      `Retrying upload for ${file.path}: ${err.message}`
-                    );
-                  },
-                }
-              );
-
-              // Delete temporary file asynchronously
-              await fs
-                .unlink(file.path)
-                .catch((err) =>
-                  console.error(`Failed to delete ${file.path}: ${err.message}`)
-                );
-
-              return {
-                id: `${Date.now().toString().slice(-6)}${i + index}`,
-                chapter_id: id,
-                image_url: result.secure_url,
-                order: i + index + 1,
-                description: "",
-              };
-            } catch (uploadError) {
-              console.error(
-                `Upload failed for ${file.path}: ${uploadError.message}`
-              );
-              throw uploadError; // Rethrow to fail the batch
-            }
-          })
-        );
-        imageRecords.push(...batchResults);
-      }
-
-      console.timeEnd("ImageUploads");
-      console.time("DatabaseInsert");
-
-      // Save image records to database
+    if (imageRecords.length > 0) {
       await ChapterImage.bulkCreate(imageRecords);
-
-      console.timeEnd("DatabaseInsert");
     }
 
-    return res.status(200).json({
+    res.status(200).json({
       message: "✅ Chapter đã được cập nhật!",
       chapter,
+      images: imageRecords,
     });
   } catch (error) {
-    console.error("❌ Update error:", error);
+    console.error("❌ Chapter update error:", error);
     res.status(500).json({
       message: "❌ Lỗi khi cập nhật chapter",
       error: error.message,
-      stack: error.stack, // Include stack trace for debugging
     });
   }
 });
